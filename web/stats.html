@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Redsec Stats</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121821; --muted:#8aa1b1; --text:#e8f0f6; --accent:#6ec1ff; --accent-2:#8affc1;
+      --border:#223041;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Arial}
+    a{color:var(--accent)}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .title{display:flex;gap:12px;align-items:center;margin:0 0 12px}
+    .title h1{font-size:22px;margin:0}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+    .controls > *{display:flex;gap:8px;align-items:center}
+    .controls input[type="search"], .controls select{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0f141c;color:var(--text)
+    }
+    .controls button, .pill{
+      border:1px solid var(--border);background:#0f141c;color:var(--text);padding:10px 12px;border-radius:10px;cursor:pointer
+    }
+    .controls button:hover{border-color:#2f455f}
+    .summary{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+    .pill{display:inline-flex;align-items:center;gap:6px}
+    .pill strong{color:var(--accent)}
+    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:8px}
+    th, td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+    thead th{position:sticky;top:0;background:linear-gradient(#121821,#111720);z-index:1;font-weight:600;text-align:left}
+    tbody tr:hover{background:#0f141c}
+    .tag{font-size:12px;color:var(--muted)}
+    .num{text-align:left;font-variant-numeric:tabular-nums}
+    .positive{color:var(--accent-2)} .negative{color:#ff8a8a}
+    .nowrap{white-space:nowrap}
+    .footer{color:var(--muted);font-size:12px;margin-top:12px}
+    .badge{font-size:12px;background:#0f141c;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
+
+    /* REMOVE */
+    .cool-thing {
+      background: #0f141c;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      margin: 12px 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+.cool-thing a:hover img {
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+    .cool-thing img {
+      max-width: 100%;
+      border-radius: 8px;
+      display: block;
+    }
+    .table-with-ad {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.table-area {
+  flex: 1; /* table takes remaining width */
+}
+
+.fake-ad-side {
+  width: 240px;       /* ad width */
+  flex-shrink: 0;     /* prevent squishing */
+}
+
+.fake-ad-side .fake-ad {
+  background: #0f141c;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  align-items: center;
+}
+
+.fake-ad-side img {
+  max-width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+    /* END REMOVE */
+
+    /* make <button class="badge"> look like other badges */
+    button.badge{
+      all: unset;
+      display: inline-block;
+      font: inherit;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 8px;
+      cursor: pointer;
+      line-height: 1.3;
+    }
+    button.badge:hover { border-color: var(--accent); }
+    button.badge:disabled { opacity: .6; cursor: not-allowed; }
+
+    /* flash state for manual refresh */
+    button.badge.flash {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 1px var(--accent-2);
+      background: #0f1a16;
+      transition: box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+
+    /* inline status colors */
+    .tag.ok    { color: var(--accent-2); }
+    .tag.error { color: #ff8a8a; }
+    .tag.info  { color: var(--muted); }
+
+    .file{display:none}
+    @media (max-width:900px){
+      .controls{grid-template-columns:1fr 1fr}
+      .hide-md{display:none}
+    }
+    @media (max-width:620px){
+      .controls{grid-template-columns:1fr}
+      thead .hide-sm, tbody .hide-sm{display:none}
+    }
+
+    /* Modal */
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    #chartModal {
+      width:min(1100px, 96vw);
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--panel);
+      color:var(--text);
+      padding:0;
+    }
+    #chartModal .modal-header {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border); background:#111720;
+    }
+    #chartModal h2 { margin:0; font-size:18px; }
+    #chartModal menu, #chartModal button[value="close"] { all:unset; display:flex; gap:8px; }
+    #chartModal button[value="close"]{
+      border:1px solid var(--border); padding:8px 10px; border-radius:8px; cursor:pointer;
+    }
+    #chartModal .modal-controls {
+      display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:12px;
+      padding:12px 16px; border-bottom:1px solid var(--border);
+    }
+    #chartModal .modal-body { padding:12px 16px; }
+    @media (max-width:720px){
+      #chartModal .modal-controls{ grid-template-columns:1fr 1fr; }
+    }
+
+    /* pagination */
+    .pager{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:8px;
+    }
+    .pager button.badge{
+      padding:4px 10px;
+    }
+    .pager button.badge:disabled{
+      opacity:.4;
+      cursor:not-allowed;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1>Redsec Stats</h1>
+    <span class="badge" id="rowCount">0 rows</span>
+    <span class="badge" id="nextTickBadge">
+      Next tick:
+      <span id="countdownText">—</span>
+      <span id="intervalText"></span>
+    </span>
+    <span class="badge" id="playersCount">0 players</span>
+    <button id="manualRefreshBtn" class="badge" style="cursor:pointer;">🔁 Refresh Now</button>
+    <span id="refreshStatus" class="tag" aria-live="polite" style="margin-left:8px;"></span>
+  </div>
+
+  <div class="panel">
+    <div class="cool-thing">
+        <a href="https://www.machotube.tv/movies/1342322/la-musclepig-weekend-part-two" target="_blank">
+      <img src="/hunk.gif" alt="Ad">
+      </a>
+    </div>
+    <div class="controls">
+      <div>
+        <label for="playerFilter" class="tag">Player</label>
+        <select id="playerFilter"></select>
+      </div>
+      <div>
+        <label for="search" class="tag">Search (player / timestamp)</label>
+        <input id="search" type="search" placeholder="type to filter…" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:end">
+        <button id="resetBtn" title="Reset filters">Reset</button>
+        <button id="openChartBtn" title="Open KD chart">KD Chart</button>
+        <button id="showFullImageBtn" title="Show all players">Show all players</button>
+        <div style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div class="summary" id="summary"></div>
+<!-- remove-->
+<div class="table-with-ad">
+
+  <!-- LEFT SIDE — stats table -->
+  <div class="table-area">
+    <div style="overflow:auto;border:1px solid var(--border);border-radius:10px">
+      <table id="tbl">
+        <thead>
+        <tr>
+          <th data-sort="player_name">Player</th>
+          <th data-sort="timestamp">Timestamp</th>
+          <th class="hide-sm" data-sort="kills_gm_granitebr">Kills</th>
+          <th class="hide-sm" data-sort="deaths_gm_granitebr">Deaths</th>
+          <th class="hide-sm" data-sort="assists_gm_granitebr">Assists</th>
+          <th class="hide-sm" data-sort="dmg_gm_granitebr">Damage</th>
+          <th class="hide-md" data-sort="wins_gm_granitebr">Wins</th>
+          <th data-sort="kd">KD</th>
+          <th class="hide-md" data-sort="kda">KDA</th>
+          <th class="hide-md" data-sort="tp_gm_granitebr">Time played</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RIGHT SIDE — fake ad -->
+  <div class="fake-ad-side">
+    <div class="cool-thing">
+        <a href="https://www.machotube.tv/movies/1342322/la-musclepig-weekend-part-two" target="_blank">
+      <img src="/gay.jpeg" alt="Ad">
+      </a>
+    </div>
+  </div>
+
+</div>
+<!-- remove-->
+
+    <!-- <div style="overflow:auto;border:1px solid var(--border);border-radius:10px">
+      <table id="tbl">
+        <thead>
+        <tr>
+          <th data-sort="player_name">Player</th>
+          <th data-sort="timestamp">Timestamp</th>
+          <th class="hide-sm" data-sort="kills_gm_granitebr">Kills</th>
+          <th class="hide-sm" data-sort="deaths_gm_granitebr">Deaths</th>
+          <th class="hide-sm" data-sort="assists_gm_granitebr">Assists</th>
+          <th class="hide-sm" data-sort="dmg_gm_granitebr">Damage</th>
+          <th class="hide-md" data-sort="wins_gm_granitebr">Wins</th>
+          <th data-sort="kd">KD</th>
+          <th class="hide-md" data-sort="kda">KDA</th>
+          <th class="hide-md" data-sort="tp_gm_granitebr">Time played</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div> -->
+
+    <!-- Pagination controls -->
+    <div class="pager">
+      <button id="prevPageBtn" class="badge">◀ Prev</button>
+      <span id="pageInfo" class="tag">Page 1 / 1</span>
+      <button id="nextPageBtn" class="badge">Next ▶</button>
+    </div>
+
+    <div class="footer"></div>
+  </div>
+</div>
+
+<script>
+/** --------- Utilities ---------- */
+const GRANITE_SUFFIX = "_gm_granitebr";
+const num = (v)=> (v==null || v==="") ? 0 : Number(v);
+const fmt = (v)=> v==null ? "" : Number(v).toLocaleString();
+
+/** Compute KD/KDA on a row (adds per-match metrics too) */
+function withComputed(row) {
+  // cumulative totals
+  const kills   = num(row.kills_gm_granitebr);
+  const deaths  = Math.max(1, num(row.deaths_gm_granitebr));
+  const assists = num(row.assists_gm_granitebr);
+
+  // per-match deltas
+  const dk = num(row.delta_kills_gm_granitebr);
+  const dd = num(row.delta_deaths_gm_granitebr);
+  const da = num(row.delta_assists_gm_granitebr);
+  const ddSafe = dd === 0 ? 1 : dd;
+
+  return {
+    ...row,
+    // cumulative (overall) ratios
+    kd:  +(kills / deaths).toFixed(2),
+    kda: +((kills + assists) / deaths).toFixed(2),
+    // per-match (raw for chart precision)
+    kd_match_raw:   dk / ddSafe,
+    kda_match_raw: (dk + da) / ddSafe,
+  };
+}
+
+/** Extract only stat keys (ignore id/player_id/ts) */
+function statKeys(row){
+  return Object.keys(row).filter(k=>k.endsWith(GRANITE_SUFFIX));
+}
+
+/** --------- Data + State ---------- */
+let RAW = [];             // original rows
+let DATA = [];            // rows with computed fields
+let sortKey = "timestamp";
+let sortDir = -1;         // -1 desc, 1 asc
+
+// pagination
+const PAGE_SIZE = 50;
+let currentPage = 1;
+let totalPages = 1;
+
+/** --------- Rendering ---------- */
+const tbody = document.querySelector("#tbl tbody");
+const rowCount = document.getElementById("rowCount");
+const playersCount = document.getElementById("playersCount");
+const playerFilter = document.getElementById("playerFilter");
+const search = document.getElementById("search");
+const summary = document.getElementById("summary");
+
+// pager elements
+const prevPageBtn = document.getElementById("prevPageBtn");
+const nextPageBtn = document.getElementById("nextPageBtn");
+const pageInfo = document.getElementById("pageInfo");
+
+function deltaCell(total, delta){
+  const d = Number(delta);
+  const t = fmt(total);
+  if (!Number.isFinite(d) || d === 0) return t;
+  const sign = d > 0 ? "+" : "";
+  const cls = d > 0 ? "positive" : "negative";
+  return `${t} <span class="${cls}">(${sign}${fmt(d)})</span>`;
+}
+
+function fmtMinutes(seconds){
+  const s = Number(seconds) || 0;
+  const minutes = s / 60;
+  if (minutes < 1) return `${s.toFixed(0)} s`;
+  if (minutes < 60) return `${minutes.toFixed(1)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h} h ${m} min`;
+}
+
+function renderTable(){
+  const player = playerFilter.value;
+  const q = search.value.trim().toLowerCase();
+  const HIDDEN_PLAYERS = [""];
+
+  // 1) filter
+  let rows = DATA.filter(r=>{
+    const name = (r.player_name ?? r.name ?? "").trim();
+    const lowerName = name.toLowerCase();
+
+    // Skip hidden players (compare case-insensitive)
+    if (HIDDEN_PLAYERS.some(h => h.toLowerCase() === lowerName)) return false;
+
+    // Apply filters
+    const hitPlayer = (player==="__all__") || name===player;
+    const hay = name + " " + (r.timestamp ?? r.ts ?? "");
+    const hitText = hay.toLowerCase().includes(q);
+    return hitPlayer && hitText;
+  });
+
+  // 2) sort
+  rows.sort((a,b)=>{
+    const av = a[sortKey];
+    const bv = b[sortKey];
+    if (av==null && bv==null) return 0;
+    if (av==null) return 1;
+    if (bv==null) return -1;
+    if (typeof av === "number" && typeof bv === "number") return (av-bv)*sortDir;
+    return String(av).localeCompare(String(bv)) * sortDir;
+  });
+
+  // 3) pagination bookkeeping
+  const total = rows.length;
+  totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+  // 4) render just this page
+  tbody.innerHTML = pageRows.map(r=>{
+    const name = r.player_name ?? r.name ?? "";
+    const ts = r.timestamp ?? r.ts ?? "";
+    return `<tr>
+      <td class="nowrap">${name}</td>
+      <td class="nowrap"><span class="tag">${ts}</span></td>
+      <td class="num hide-sm">${fmt(r.delta_kills_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_deaths_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_assists_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_dmg_gm_granitebr)}</td>
+      <td class="num hide-md">${fmt(r.delta_wins_gm_granitebr)}</td>
+      <td class="num">${fmt(r.kd)}</td>
+      <td class="num hide-md">${fmt(r.kda)}</td>
+      <td class="num hide-md">${fmtMinutes(r.delta_tp_gm_granitebr)}</td>
+    </tr>`;
+  }).join("");
+
+  // total matches (not just on this page)
+  rowCount.textContent = `${total.toLocaleString()} Matches`;
+
+  // update pager UI
+  if (total === 0) {
+    pageInfo.textContent = 'Page 0 / 0';
+    prevPageBtn.disabled = true;
+    nextPageBtn.disabled = true;
+  } else {
+    pageInfo.textContent = `Page ${currentPage} / ${totalPages}`;
+    prevPageBtn.disabled = currentPage <= 1;
+    nextPageBtn.disabled = currentPage >= totalPages;
+  }
+}
+
+function renderFilters(){
+  const names = new Set();
+  DATA.forEach(r=> names.add(r.player_name ?? r.name ?? ""));
+  const sorted = [...names].filter(Boolean).sort((a,b)=>a.localeCompare(b));
+  playerFilter.innerHTML = `<option value="__all__">All players</option>` +
+    sorted.map(n=>`<option>${n}</option>`).join("");
+  playersCount.textContent = `${sorted.length} players`;
+}
+
+function renderSummary(){
+  const byPlayer = new Map();
+  DATA.forEach(r=>{
+    const name = r.player_name ?? r.name ?? "Unknown";
+    let x = byPlayer.get(name);
+    if (!x) x = {rows:0, kdSum:0, kdaSum:0};
+    x.rows++; x.kdSum += (r.kd ?? 0); x.kdaSum += (r.kda ?? 0);
+    byPlayer.set(name, x);
+  });
+  const items = [...byPlayer.entries()].sort((a,b)=> b[1].rows - a[1].rows).slice(0,6).map(([name, x])=>{
+    const kdAvg = x.rows ? (x.kdSum/x.rows).toFixed(2) : "0.00";
+    return `<span class="pill"><strong>${name}</strong> • ${x.rows} matches • KD ${kdAvg}</span>`;
+  });
+  summary.innerHTML = items.join("") || `<span class="tag">No data loaded yet.</span>`;
+}
+
+/** --------- Sorting ---------- */
+document.querySelectorAll("thead th[data-sort]").forEach(th=>{
+  th.style.cursor = "pointer";
+  th.title = "Click to sort";
+  th.addEventListener("click", ()=>{
+    const key = th.dataset.sort;
+    if (sortKey === key) {
+      sortDir *= -1;
+    } else {
+      sortKey = key;
+      sortDir = -1;
+    }
+    currentPage = 1;
+    renderTable();
+  });
+});
+
+/** --------- Pagination controls ---------- */
+prevPageBtn.addEventListener("click", ()=>{
+  if (currentPage > 1) {
+    currentPage--;
+    renderTable();
+  }
+});
+
+nextPageBtn.addEventListener("click", ()=>{
+  if (currentPage < totalPages) {
+    currentPage++;
+    renderTable();
+  }
+});
+
+/** --------- Loading data ---------- */
+async function tryAutoLoad(){
+  try {
+    const res = await fetch("/api/snapshots?order=desc&with_deltas=1", {cache: "no-store"});
+    if (!res.ok) throw new Error(await res.text());
+    const rows = await res.json();
+    setData(rows);
+    console.log(`✅ Loaded ${rows.length} snapshots from API`);
+  } catch (e) {
+    console.warn("⚠️ Could not load from API:", e);
+  }
+}
+
+document.getElementById("resetBtn").addEventListener("click", ()=>{
+  playerFilter.value="__all__"; search.value="";
+  currentPage = 1;
+  renderTable();
+});
+
+function normalizeRows(rows){
+  return rows.map(r=>{
+    const ts = r.timestamp || r.ts || "";
+    const name = r.player_name || r.name || "";
+    return withComputed({...r, timestamp: ts, player_name: name});
+  });
+}
+
+function setData(rows){
+  RAW = Array.isArray(rows) ? rows : [];
+  DATA = normalizeRows(RAW);
+  currentPage = 1;
+  renderFilters();
+  renderSummary();
+  renderTable();
+}
+
+playerFilter.addEventListener("change", ()=>{
+  currentPage = 1;
+  renderTable();
+});
+search.addEventListener("input", ()=>{
+  currentPage = 1;
+  renderTable();
+});
+
+tryAutoLoad();
+</script>
+
+<script>
+let __timer_baseSeconds = null;
+let __timer_lastFetchMs = 0;
+function fmtHHMMSS(total){
+  const s=Math.max(0,Math.floor(total||0));
+  const h=Math.floor(s/3600);
+  const m=Math.floor((s%3600)/60);
+  const sec=s%60;
+  return (h?String(h).padStart(2,'0')+':':'')+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');
+}
+async function refreshTimer(){
+  const c=document.getElementById('countdownText');
+  const i=document.getElementById('intervalText');
+  try{
+    const res=await fetch('/api/timer',{cache:'no-store'});
+    if(!res.ok) throw new Error('timer');
+    const j=await res.json();
+    __timer_baseSeconds=typeof j.seconds_remaining==='number'?j.seconds_remaining:null;
+    __timer_lastFetchMs=Date.now();
+    i.textContent=j.timer_minutes?`(every ${j.timer_minutes}m)`:''; 
+    c.textContent=__timer_baseSeconds==null?'—':fmtHHMMSS(__timer_baseSeconds);
+  }catch(e){
+    i.textContent=''; c.textContent='—';
+  }
+}
+setInterval(()=>{
+  if(__timer_baseSeconds==null) return;
+  const elapsed=Math.floor((Date.now()-__timer_lastFetchMs)/1000);
+  const left=Math.max(0,__timer_baseSeconds-elapsed);
+  document.getElementById('countdownText').textContent=fmtHHMMSS(left);
+  if(left===0) refreshTimer();
+},1000);
+setInterval(refreshTimer,30000);
+window.addEventListener('DOMContentLoaded',()=>{ refreshTimer(); });
+</script>
+
+<!-- Chart.js and modal chart (one consolidated block) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  function colorForIndex(i){ const h=(i*57)%360; return `hsl(${h} 70% 60%)`; }
+  function smoothSeries(points,N){
+    N=Math.max(1,Number(N)||1);
+    if(N===1||!points.length) return points;
+    const out=[], buf=[]; let sum=0;
+    for(const p of points){
+      sum+=p.y; buf.push(p.y);
+      if(buf.length>N) sum-=buf.shift();
+      out.push({x:p.x,y:sum/buf.length, ts:p.ts});
+    }
+    return out;
+  }
+  // Build per-player series by match index; metric: kd_match_raw | kda_match_raw | kd | kda
+  function buildIndexSeries(rows, metric){
+    const byPlayer = new Map();
+    for(const r of rows){
+      const name = r.player_name ?? r.name ?? "Unknown";
+      if(!name) continue;
+      const y = r[metric];
+      if(!Number.isFinite(y)) continue;
+      const ts = r.timestamp ?? r.ts ?? "";
+      (byPlayer.get(name) || byPlayer.set(name,[]).get(name)).push({y,ts});
+    }
+    for(const [name,list] of byPlayer.entries()){
+      list.sort((a,b)=> Date.parse(a.ts)-Date.parse(b.ts));
+      byPlayer.set(name, list.map((p,i)=>({x:i+1,y:p.y,ts:p.ts})));
+    }
+    return byPlayer;
+  }
+
+  let kdChart = null;
+
+  function renderChartControls(){
+    const sel = document.getElementById("chartPlayers");
+    const names = [...new Set(DATA.map(r=> r.player_name ?? r.name).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b));
+    sel.innerHTML = names.map(n=> `<option>${n}</option>`).join("");
+    for(let i=0;i<Math.min(4, sel.options.length); i++) sel.options[i].selected = true;
+  }
+
+  function updateKDChart(){
+    const playersSel = document.getElementById("chartPlayers");
+    const metric = document.getElementById("metricSelect").value;
+    const smoothN = Number(document.getElementById("smoothN").value)||1;
+    const selected = Array.from(playersSel.selectedOptions).map(o=>o.value);
+
+    const series = buildIndexSeries(DATA, metric);
+    const datasets = selected.map((name,i)=>{
+      const raw = series.get(name) ?? [];
+      const pts = smoothSeries(raw, smoothN);
+      return {
+        label: `${name}${smoothN>1?` (avg ${smoothN})`:''}`,
+        data: pts,
+        borderColor: colorForIndex(i),
+        backgroundColor: 'transparent',
+        pointRadius: 2,
+        borderWidth: 2,
+        spanGaps: true,
+        tension: 0.2
+      };
+    });
+
+    // tight y-axis so tiny changes are visible
+    const allY = datasets.flatMap(d=> d.data.map(p=>p.y)).filter(Number.isFinite);
+    const lo = allY.length ? Math.min(...allY) : 0;
+    const hi = allY.length ? Math.max(...allY) : 1;
+    const pad = Math.max(0.01, (hi-lo)*0.15);
+    const yMin = lo - pad, yMax = hi + pad;
+
+    const opts = {
+      parsing:false, animation:false, maintainAspectRatio:false, normalized:true,
+      interaction:{ mode:'nearest', intersect:false },
+      scales:{
+        x:{ type:'linear', title:{display:true,text:'Match # (per player)'},
+            ticks:{ callback:v=>Number.isInteger(v)?v:'' } },
+        y:{ title:{display:true,text: metric.includes('kda')?'KDA':'KD' },
+            beginAtZero:false, min:yMin, max:yMax,
+            ticks:{ callback:v=>Number(v).toFixed(2) } }
+      },
+      plugins:{ legend:{position:'top'},
+        tooltip:{ callbacks:{
+          title:(items)=> items?.[0] ? `Match #${items[0].parsed.x}` : '',
+          label:(ctx)=> {
+            const p = ctx.raw; const y = (ctx.parsed.y ?? p?.y ?? 0).toFixed(2);
+            const ts = p?.ts ? ` @ ${new Date(p.ts).toLocaleString()}` : '';
+            return `${ctx.dataset.label.replace(/\s\(avg.*\)$/,'')}: ${y}${ts}`;
+          }
+        } }
+      }
+    };
+
+    const ctx = document.getElementById("kdChart").getContext("2d");
+    if(!kdChart){ kdChart = new Chart(ctx, { type:'line', data:{datasets}, options:opts }); }
+    else { kdChart.data.datasets = datasets; kdChart.options = {...kdChart.options, ...opts}; kdChart.update(); }
+  }
+
+  function openModal(){
+    renderChartControls();
+    updateKDChart();
+    document.getElementById("chartModal").showModal();
+  }
+  function closeModal(){ document.getElementById("chartModal").close(); }
+
+  // Hook after DOM (dialog/buttons exist)
+  window.addEventListener('DOMContentLoaded', ()=>{
+    document.getElementById("openChartBtn")?.addEventListener("click", openModal);
+    document.getElementById("closeChartBtn")?.addEventListener("click", closeModal);
+    document.getElementById("updateChartBtn")?.addEventListener("click", updateKDChart);
+  });
+})();
+</script>
+
+<!-- Modal -->
+<dialog id="chartModal">
+  <form method="dialog" style="margin:0">
+    <div class="modal-header">
+      <h2>KD by Match</h2>
+      <menu>
+        <button value="close" id="closeChartBtn">Close</button>
+      </menu>
+    </div>
+
+    <div class="modal-controls">
+      <div>
+        <label class="tag">Players</label>
+        <select id="chartPlayers" multiple size="6" style="min-width:220px"></select>
+      </div>
+      <div>
+        <label class="tag">Metric</label>
+        <select id="metricSelect">
+          <option value="kd_match_raw">Per-match KD</option>
+          <option value="kda_match_raw">Per-match KDA</option>
+          <option value="kd">Cumulative KD</option>
+          <option value="kda">Cumulative KDA</option>
+        </select>
+      </div>
+      <div>
+        <label class="tag">Smoothing (N)</label>
+        <input id="smoothN" type="number" min="1" step="1" value="1" />
+      </div>
+      <div style="align-self:end">
+        <button type="button" id="updateChartBtn">Update</button>
+      </div>
+    </div>
+
+    <div class="modal-body">
+      <canvas id="kdChart" height="380"></canvas>
+    </div>
+  </form>
+</dialog>
+
+<!-- Full-screen image overlay (hidden by default) -->
+<div id="fullscreenImage">
+  <img id="fullscreenImg"
+       src="https://upload.wikimedia.org/wikipedia/commons/3/3f/Placeholder_view_vector.svg"
+       alt="Image">
+  <button id="closeFullImageBtn">Close</button>
+</div>
+
+<style>
+  /* hidden by default */
+  #fullscreenImage {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+
+  #fullscreenImage img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  #closeFullImageBtn {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0f141c;
+    color: var(--text);
+    cursor: pointer;
+  }
+</style>
+
+<script>
+  const fullDiv = document.getElementById("fullscreenImage");
+  const fullImg = document.getElementById("fullscreenImg");
+  const showBtn = document.getElementById("showFullImageBtn");
+  const closeBtn = document.getElementById("closeFullImageBtn");
+
+  showBtn.addEventListener("click", () => {
+    fullDiv.style.display = "flex";    // show overlay
+    document.body.style.overflow = "hidden"; // disable scroll
+  });
+
+  closeBtn.addEventListener("click", () => {
+    fullDiv.style.display = "none";    // hide overlay
+    document.body.style.overflow = ""; // restore scroll
+  });
+</script>
+
+<script>
+(() => {
+  const btn = document.getElementById('manualRefreshBtn');
+  const statusEl = document.getElementById('refreshStatus');
+
+  let statusTimer = null;
+  function setStatus(text, cls = 'info', ttl = 2500) {
+    statusEl.className = `tag ${cls}`;
+    statusEl.textContent = text || '';
+    if (statusTimer) clearTimeout(statusTimer);
+    if (text) statusTimer = setTimeout(() => { statusEl.textContent = ''; }, ttl);
+  }
+
+  async function onClick() {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Refreshing…';
+    setStatus('Sending refresh request…', 'info', 15000);
+
+    let ok = false;
+
+    try {
+      const res = await fetch('/api/trigger_refresh', { method: 'POST' });
+      let body = null; try { body = await res.json(); } catch {}
+
+      if (!res.ok) {
+        if (res.status === 429) {
+          setStatus((body && body.message) || 'Please wait before refreshing again.', 'error', 4000);
+          btn.textContent = '⚠️ Rate limited';
+          return;
+        }
+        setStatus((body && body.message) || `Refresh failed (${res.status})`, 'error', 4000);
+        btn.textContent = '❌ Failed';
+        return;
+      }
+
+      ok = true;
+      setStatus((body && body.message) || 'Refresh requested', 'ok', 5000);
+
+      // stay on "Refreshing…" while the bot fetches + writes
+      const DELAY_MS = 13000; // tune this if needed
+
+      setTimeout(async () => {
+        try { refreshTimer(); } catch {}
+        try { await tryAutoLoad(); } catch {}
+
+        // now we *actually* show "Refreshed" briefly
+        btn.classList.add('flash');
+        btn.textContent = '✅ Refreshed';
+
+        setTimeout(() => {
+          btn.classList.remove('flash');
+          btn.disabled = false;
+          btn.textContent = original;
+        }, 1000);
+      }, DELAY_MS);
+
+    } catch (e) {
+      console.error(e);
+      setStatus('Network error while refreshing.', 'error', 4000);
+      btn.textContent = '❌ Failed';
+    } finally {
+      // Only auto-restore immediately on hard failure.
+      if (!ok) {
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = original;
+        }, 1200);
+      }
+    }
+  }
+
+  btn.addEventListener('click', onClick);
+})();
+</script>
+
+</body>
+</html>

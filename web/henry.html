@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Redsec Stats</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121821; --muted:#8aa1b1; --text:#e8f0f6; --accent:#6ec1ff; --accent-2:#8affc1;
+      --border:#223041;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Arial}
+    a{color:var(--accent)}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    .title{display:flex;gap:12px;align-items:center;margin:0 0 12px}
+    .title h1{font-size:22px;margin:0}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+    .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}
+    .controls > *{display:flex;gap:8px;align-items:center}
+    .controls input[type="search"], .controls select{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0f141c;color:var(--text)
+    }
+    .controls button, .pill{
+      border:1px solid var(--border);background:#0f141c;color:var(--text);padding:10px 12px;border-radius:10px;cursor:pointer
+    }
+    .controls button:hover{border-color:#2f455f}
+    .summary{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+    .pill{display:inline-flex;align-items:center;gap:6px}
+    .pill strong{color:var(--accent)}
+    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:8px}
+    th, td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+    thead th{position:sticky;top:0;background:linear-gradient(#121821,#111720);z-index:1;font-weight:600;text-align:left}
+    tbody tr:hover{background:#0f141c}
+    .tag{font-size:12px;color:var(--muted)}
+    .num{text-align:left;font-variant-numeric:tabular-nums}
+    .positive{color:var(--accent-2)} .negative{color:#ff8a8a}
+    .nowrap{white-space:nowrap}
+    .footer{color:var(--muted);font-size:12px;margin-top:12px}
+    .badge{font-size:12px;background:#0f141c;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
+    .file{display:none}
+    @media (max-width:900px){
+      .controls{grid-template-columns:1fr 1fr}
+      .hide-md{display:none}
+    }
+    @media (max-width:620px){
+      .controls{grid-template-columns:1fr}
+      thead .hide-sm, tbody .hide-sm{display:none}
+    }
+
+    /* Modal */
+    dialog::backdrop { background: rgba(0,0,0,.55); }
+    #chartModal {
+      width:min(1100px, 96vw);
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:var(--panel);
+      color:var(--text);
+      padding:0;
+    }
+    #chartModal .modal-header {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:14px 16px; border-bottom:1px solid var(--border); background:#111720;
+    }
+    #chartModal h2 { margin:0; font-size:18px; }
+    #chartModal menu, #chartModal button[value="close"] { all:unset; display:flex; gap:8px; }
+    #chartModal button[value="close"]{
+      border:1px solid var(--border); padding:8px 10px; border-radius:8px; cursor:pointer;
+    }
+    #chartModal .modal-controls {
+      display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:12px;
+      padding:12px 16px; border-bottom:1px solid var(--border);
+    }
+    #chartModal .modal-body { padding:12px 16px; }
+    @media (max-width:720px){
+      #chartModal .modal-controls{ grid-template-columns:1fr 1fr; }
+    }
+
+    /* Fullscreen image overlay */
+    #fullscreenImage {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+    #fullscreenImage img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    #closeFullImageBtn {
+      margin-top: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f141c;
+      color: var(--text);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1>Redsec Stats</h1>
+    <span class="badge" id="rowCount">0 Matches</span>
+    <span class="badge" id="playersCount">0 players</span>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <div>
+        <label for="playerFilter" class="tag">Player</label>
+        <select id="playerFilter" disabled></select>
+      </div>
+      <div>
+        <label for="search" class="tag">Search (player / timestamp)</label>
+        <input id="search" type="search" placeholder="type to filter…" />
+      </div>
+      <div style="display:flex;gap:8px;align-items:end">
+        <button id="resetBtn" title="Reset filters">Reset</button>
+        <button id="openChartBtn" title="Open KD chart">KD Chart</button>
+        <button id="showFullImageBtn" title="Show all players">Show all players</button>
+        <div style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div class="summary" id="summary"></div>
+
+    <div style="overflow:auto;border:1px solid var(--border);border-radius:10px">
+      <table id="tbl">
+        <thead>
+        <tr>
+          <th data-sort="player_name">Player</th>
+          <th data-sort="timestamp">Timestamp</th>
+          <th class="hide-sm" data-sort="kills_gm_granitebr">Kills</th>
+          <th class="hide-sm" data-sort="deaths_gm_granitebr">Deaths</th>
+          <th class="hide-sm" data-sort="assists_gm_granitebr">Assists</th>
+          <th class="hide-sm" data-sort="dmg_gm_granitebr">Damage</th>
+          <th class="hide-md" data-sort="wins_gm_granitebr">Wins</th>
+          <th data-sort="kd">KD</th>
+          <th class="hide-md" data-sort="kda">KDA</th>
+          <th class="hide-md" data-sort="tp_gm_granitebr">Time played</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="footer"></div>
+  </div>
+</div>
+
+<script>
+/** --------- Utilities ---------- */
+const GRANITE_SUFFIX = "_gm_granitebr";
+const num = (v)=> (v==null || v==="") ? 0 : Number(v);
+const fmt = (v)=> v==null ? "" : Number(v).toLocaleString();
+
+// ✅ Only allow this player everywhere
+const ALLOWED_PLAYER = "sokokuuu";
+
+/** Compute KD/KDA on a row (adds per-match metrics too) */
+function withComputed(row) {
+  const kills   = num(row.kills_gm_granitebr);
+  const deaths  = Math.max(1, num(row.deaths_gm_granitebr));
+  const assists = num(row.assists_gm_granitebr);
+
+  const dk = num(row.delta_kills_gm_granitebr);
+  const dd = num(row.delta_deaths_gm_granitebr);
+  const da = num(row.delta_assists_gm_granitebr);
+  const ddSafe = dd === 0 ? 1 : dd;
+
+  return {
+    ...row,
+    kd:  +(kills / deaths).toFixed(2),
+    kda: +((kills + assists) / deaths).toFixed(2),
+    kd_match_raw:   dk / ddSafe,
+    kda_match_raw: (dk + da) / ddSafe,
+  };
+}
+
+/** Extract only stat keys (ignore id/player_id/ts) */
+function statKeys(row){
+  return Object.keys(row).filter(k=>k.endsWith(GRANITE_SUFFIX));
+}
+
+/** --------- Data + State ---------- */
+let RAW = [];             // original rows (already filtered to only sokokuuu)
+let DATA = [];            // rows with computed fields
+let sortKey = "timestamp";
+let sortDir = -1;         // -1 desc, 1 asc
+
+/** --------- Rendering ---------- */
+const tbody = document.querySelector("#tbl tbody");
+const rowCount = document.getElementById("rowCount");
+const playersCount = document.getElementById("playersCount");
+const playerFilter = document.getElementById("playerFilter");
+const search = document.getElementById("search");
+const summary = document.getElementById("summary");
+
+function deltaCell(total, delta){
+  const d = Number(delta);
+  const t = fmt(total);
+  if (!Number.isFinite(d) || d === 0) return t;
+  const sign = d > 0 ? "+" : "";
+  const cls = d > 0 ? "positive" : "negative";
+  return `${t} <span class="${cls}">(${sign}${fmt(d)})</span>`;
+}
+
+function fmtMinutes(seconds){
+  const s = Number(seconds) || 0;
+  const minutes = s / 60;
+  if (minutes < 1) return `${s.toFixed(0)} s`;
+  if (minutes < 60) return `${minutes.toFixed(1)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h} h ${m} min`;
+}
+
+function renderTable(){
+  const q = search.value.trim().toLowerCase();
+
+  // DATA only contains sokokuuu at this point
+  let rows = DATA.filter(r=>{
+    const name = (r.player_name ?? r.name ?? "").trim();
+    const hay  = name + " " + (r.timestamp ?? r.ts ?? "");
+    return hay.toLowerCase().includes(q);
+  });
+
+  rows.sort((a,b)=>{
+    const av = a[sortKey];
+    const bv = b[sortKey];
+    if (av==null && bv==null) return 0;
+    if (av==null) return 1;
+    if (bv==null) return -1;
+    if (typeof av === "number" && typeof bv === "number") return (av-bv)*sortDir;
+    return String(av).localeCompare(String(bv)) * sortDir;
+  });
+
+  tbody.innerHTML = rows.map(r=>{
+    const name = r.player_name ?? r.name ?? "";
+    const ts = r.timestamp ?? r.ts ?? "";
+    return `<tr>
+      <td class="nowrap">${name}</td>
+      <td class="nowrap"><span class="tag">${ts}</span></td>
+      <td class="num hide-sm">${fmt(r.delta_kills_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_deaths_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_assists_gm_granitebr)}</td>
+      <td class="num hide-sm">${fmt(r.delta_dmg_gm_granitebr)}</td>
+      <td class="num hide-md">${fmt(r.delta_wins_gm_granitebr)}</td>
+      <td class="num">${fmt(r.kd)}</td>
+      <td class="num hide-md">${fmt(r.kda)}</td>
+      <td class="num hide-md">${fmtMinutes(r.delta_tp_gm_granitebr)}</td>
+    </tr>`;
+  }).join("");
+
+  rowCount.textContent = `${rows.length.toLocaleString()} Matches`;
+}
+
+function renderFilters(){
+  playerFilter.innerHTML = `<option selected>${ALLOWED_PLAYER}</option>`;
+  playerFilter.disabled = true;
+  playersCount.textContent = `1 player`;
+}
+
+function renderSummary(){
+  const byPlayer = new Map();
+  DATA.forEach(r=>{
+    const name = r.player_name ?? r.name ?? ALLOWED_PLAYER;
+    let x = byPlayer.get(name);
+    if (!x) x = {rows:0, kdSum:0, kdaSum:0};
+    x.rows++; x.kdSum += (r.kd ?? 0); x.kdaSum += (r.kda ?? 0);
+    byPlayer.set(name, x);
+  });
+  const items = [...byPlayer.entries()].sort((a,b)=> b[1].rows - a[1].rows).slice(0,6).map(([name, x])=>{
+    const kdAvg = x.rows ? (x.kdSum/x.rows).toFixed(2) : "0.00";
+    return `<span class="pill"><strong>${name}</strong> • ${x.rows} matches • KD ${kdAvg}</span>`;
+  });
+  summary.innerHTML = items.join("") || `<span class="tag">No data loaded yet.</span>`;
+}
+
+/** --------- Sorting ---------- */
+document.querySelectorAll("thead th[data-sort]").forEach(th=>{
+  th.style.cursor = "pointer";
+  th.title = "Click to sort";
+  th.addEventListener("click", ()=>{
+    const key = th.dataset.sort;
+    if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = (key==="timestamp"||key==="ts") ? -1 : -1; }
+    renderTable();
+  });
+});
+
+/** --------- Loading data ---------- */
+async function tryAutoLoad(){
+  try {
+    const res = await fetch("/api/snapshots?order=asc&with_deltas=1", {cache: "no-store"});
+    if (!res.ok) throw new Error(await res.text());
+    const rows = await res.json();
+    setData(rows);
+    console.log(`✅ Loaded ${rows.length} snapshots from API (pre-filtered to ${ALLOWED_PLAYER})`);
+  } catch (e) {
+    console.warn("⚠️ Could not load from API:", e);
+  }
+}
+
+document.getElementById("resetBtn").addEventListener("click", ()=>{
+  search.value = "";
+  renderTable();
+});
+
+function normalizeRows(rows){
+  return rows.map(r=>{
+    const ts = r.timestamp || r.ts || "";
+    const name = r.player_name || r.name || "";
+    return withComputed({...r, timestamp: ts, player_name: name});
+  });
+}
+
+function setData(rows){
+  // ✅ Keep only sokokuuu (case-insensitive) BEFORE normalizing/rendering
+  const allowedRows = (Array.isArray(rows) ? rows : []).filter(r=>{
+    const n = (r.player_name || r.name || "").trim().toLowerCase();
+    return n === ALLOWED_PLAYER.toLowerCase();
+  });
+
+  RAW  = allowedRows;
+  DATA = normalizeRows(RAW);
+  renderFilters();
+  renderSummary();
+  renderTable();
+}
+
+playerFilter.addEventListener("change", renderTable);
+search.addEventListener("input", ()=> { renderTable(); });
+
+tryAutoLoad();
+</script>
+
+<!-- Chart.js and modal chart -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  function colorForIndex(i){ const h=(i*57)%360; return `hsl(${h} 70% 60%)`; }
+  function smoothSeries(points,N){ N=Math.max(1,Number(N)||1);
+    if(N===1||!points.length) return points;
+    const out=[], buf=[]; let sum=0;
+    for(const p of points){ sum+=p.y; buf.push(p.y); if(buf.length>N) sum-=buf.shift();
+      out.push({x:p.x,y:sum/buf.length, ts:p.ts}); }
+    return out;
+  }
+  function buildIndexSeries(rows, metric){
+    const byPlayer = new Map();
+    for(const r of rows){
+      const name = r.player_name ?? r.name ?? "Unknown";
+      if(!name) continue;
+      const y = r[metric];
+      if(!Number.isFinite(y)) continue;
+      const ts = r.timestamp ?? r.ts ?? "";
+      (byPlayer.get(name) || byPlayer.set(name,[]).get(name)).push({y,ts});
+    }
+    for(const [name,list] of byPlayer.entries()){
+      list.sort((a,b)=> Date.parse(a.ts)-Date.parse(b.ts));
+      byPlayer.set(name, list.map((p,i)=>({x:i+1,y:p.y,ts:p.ts})));
+    }
+    return byPlayer;
+  }
+
+  let kdChart = null;
+
+  function renderChartControls(){
+    const sel = document.getElementById("chartPlayers");
+    // DATA is already filtered to only sokokuuu
+    const names = [...new Set(DATA.map(r=> r.player_name ?? r.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    sel.innerHTML = names.map(n=> `<option selected>${n}</option>`).join("");
+    sel.disabled = true; // lock UI — single player
+  }
+
+  function updateKDChart(){
+    const metric = document.getElementById("metricSelect").value;
+    const smoothN = Number(document.getElementById("smoothN").value)||1;
+
+    const series = buildIndexSeries(DATA, metric);
+    const name = ALLOWED_PLAYER;
+    const raw = series.get(name) ?? [];
+    const pts = (function smooth(points,N){
+      if(N===1||!points.length) return points;
+      const out=[], buf=[]; let sum=0;
+      for(const p of points){ sum+=p.y; buf.push(p.y); if(buf.length>N) sum-=buf.shift();
+        out.push({x:p.x,y:sum/buf.length, ts:p.ts}); }
+      return out;
+    })(raw, smoothN);
+
+    const datasets = [{
+      label: `${name}${smoothN>1?` (avg ${smoothN})`:''}`,
+      data: pts,
+      borderColor: colorForIndex(0),
+      backgroundColor: 'transparent',
+      pointRadius: 2,
+      borderWidth: 2,
+      spanGaps: true,
+      tension: 0.2
+    }];
+
+    const allY = datasets.flatMap(d=> d.data.map(p=>p.y)).filter(Number.isFinite);
+    const lo = allY.length ? Math.min(...allY) : 0;
+    const hi = allY.length ? Math.max(...allY) : 1;
+    const pad = Math.max(0.01, (hi-lo)*0.15);
+    const yMin = lo - pad, yMax = hi + pad;
+
+    const opts = {
+      parsing:false, animation:false, maintainAspectRatio:false, normalized:true,
+      interaction:{ mode:'nearest', intersect:false },
+      scales:{
+        x:{ type:'linear', title:{display:true,text:'Match # (per player)'},
+            ticks:{ callback:v=>Number.isInteger(v)?v:'' } },
+        y:{ title:{display:true,text: metric.includes('kda')?'KDA':'KD' },
+            beginAtZero:false, min:yMin, max:yMax,
+            ticks:{ callback:v=>Number(v).toFixed(2) } }
+      },
+      plugins:{ legend:{position:'top'},
+        tooltip:{ callbacks:{
+          title:(items)=> items?.[0] ? `Match #${items[0].parsed.x}` : '',
+          label:(ctx)=> {
+            const p = ctx.raw; const y = (ctx.parsed.y ?? p?.y ?? 0).toFixed(2);
+            const ts = p?.ts ? ` @ ${new Date(p.ts).toLocaleString()}` : '';
+            return `${ctx.dataset.label.replace(/\s\(avg.*\)$/,'')}: ${y}${ts}`;
+          }
+        } }
+      }
+    };
+
+    const ctx = document.getElementById("kdChart").getContext("2d");
+    if(!kdChart){ kdChart = new Chart(ctx, { type:'line', data:{datasets}, options:opts }); }
+    else { kdChart.data.datasets = datasets; kdChart.options = {...kdChart.options, ...opts}; kdChart.update(); }
+  }
+
+  function openModal(){
+    renderChartControls();
+    updateKDChart();
+    document.getElementById("chartModal").showModal();
+  }
+  function closeModal(){ document.getElementById("chartModal").close(); }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    document.getElementById("openChartBtn")?.addEventListener("click", openModal);
+    document.getElementById("closeChartBtn")?.addEventListener("click", closeModal);
+    document.getElementById("updateChartBtn")?.addEventListener("click", updateKDChart);
+  });
+})();
+</script>
+
+<!-- Modal -->
+<dialog id="chartModal">
+  <form method="dialog" style="margin:0">
+    <div class="modal-header">
+      <h2>KD by Match</h2>
+      <menu>
+        <button value="close" id="closeChartBtn">Close</button>
+      </menu>
+    </div>
+
+    <div class="modal-controls">
+      <div>
+        <label class="tag">Players</label>
+        <select id="chartPlayers" multiple size="6" style="min-width:220px"></select>
+      </div>
+      <div>
+        <label class="tag">Metric</label>
+        <select id="metricSelect">
+          <option value="kd_match_raw">Per-match KD</option>
+          <option value="kda_match_raw">Per-match KDA</option>
+          <option value="kd">Cumulative KD</option>
+          <option value="kda">Cumulative KDA</option>
+        </select>
+      </div>
+      <div>
+        <label class="tag">Smoothing (N)</label>
+        <input id="smoothN" type="number" min="1" step="1" value="1" />
+      </div>
+      <div style="align-self:end">
+        <button type="button" id="updateChartBtn">Update</button>
+      </div>
+    </div>
+
+    <div class="modal-body">
+      <canvas id="kdChart" height="380"></canvas>
+    </div>
+  </form>
+</dialog>
+
+<!-- Full-screen image overlay (hidden by default) -->
+<div id="fullscreenImage">
+  <img id="fullscreenImg"
+       src="https://upload.wikimedia.org/wikipedia/commons/3/3f/Placeholder_view_vector.svg"
+       alt="Image">
+  <button id="closeFullImageBtn">Close</button>
+</div>
+
+<script>
+  const fullDiv = document.getElementById("fullscreenImage");
+  const fullImg = document.getElementById("fullscreenImg");
+  const showBtn = document.getElementById("showFullImageBtn");
+  const closeBtn = document.getElementById("closeFullImageBtn");
+
+  showBtn.addEventListener("click", () => {
+    // Keep a neutral placeholder or update to an internal asset if needed
+    fullImg.src = "https://tn.thegay.com/contents/videos_screenshots/1329000/1329837/preview.jpg";
+    fullDiv.style.display = "flex";
+    document.body.style.overflow = "hidden";
+  });
+
+  closeBtn.addEventListener("click", () => {
+    fullDiv.style.display = "none";
+    document.body.style.overflow = "";
+  });
+</script>
+
+</body>
+</html>
