@@ -153,8 +153,6 @@ def log_ip():
     if raw_ip in BLACKLISTED_IPS:
         print(f'{raw_ip} redirected!')
         return redirect("https://thisvid.com/videos/dirty-bears2", code=301)
-    else:
-        print(f'{raw_ip} allowed')
 
 @contextmanager
 def db():
@@ -181,7 +179,6 @@ def api_players():
 
 NUMERIC_TYPE_RE = re.compile(r"(INT|REAL|NUM|DEC|FLOA|DOUB)", re.I)
 
-# 👇 Only the columns the frontend actually needs
 BASE_SNAPSHOT_COLS = [
     "s.id",
     "s.player_id",
@@ -209,27 +206,6 @@ def snapshot_numeric_columns():
         "tp_gm_granitebr",
     ]
 
-
-# @lru_cache(maxsize=1)
-# def snapshot_numeric_columns():
-#     """
-#     Inspect the schema and return numeric columns to delta.
-#     Excludes identifiers and timestamp.
-#     """
-#     with db() as conn:
-#         rows = conn.execute("PRAGMA table_info(snapshot);").fetchall()
-#     cols = []
-#     for r in rows:
-#         name = r["name"]
-#         ctype = (r["type"] or "").upper()
-#         if name in ("id", "player_id", "ts"):
-#             continue
-#         # treat as numeric if declared numeric OR looks like a counter by name,
-#         # because some schemas use empty type in SQLite.
-#         if NUMERIC_TYPE_RE.search(ctype) or name.endswith("_gm_granitebr"):
-#             cols.append(name)
-#     return cols
-
 def delta_sql(col: str, clamp: bool) -> str:
     """
     Build SQL for delta of one column, safe for NULLs and first row.
@@ -249,80 +225,10 @@ def delta_sql(col: str, clamp: bool) -> str:
 def index():
     return send_from_directory(WEB_DIR, "stats.html")
 
-# @app.get("/api/players")
-# def api_players():
-#     with db() as conn:
-#         rows = conn.execute("SELECT id, name FROM player ORDER BY name").fetchall()
-#         return jsonify([dict(r) for r in rows])
-
-# @app.get("/api/snapshots")
-# def api_snapshots():
-#     player = request.args.get("player")
-#     limit = int(request.args.get("limit", "500"))
-#     since = request.args.get("from")
-#     until = request.args.get("to")
-#     order = request.args.get("order", "desc").lower()
-#     with_deltas = request.args.get("with_deltas", "0").lower() in ("1", "true", "yes")
-#     clamp = request.args.get("clamp", "0").lower() in ("1", "true", "yes")
-
-#     order_sql = "DESC" if order != "asc" else "ASC"
-
-#     select_cols = [
-#         "s.id",
-#         "s.player_id",
-#         "p.name AS player_name",
-#         "s.ts AS timestamp",
-#         "s.*",
-#     ]
-
-#     if with_deltas:
-#         cols = snapshot_numeric_columns()
-#         #print("with_deltas=1 -> adding", cols)
-#         for col in cols:
-#             select_cols.append(delta_sql(col, clamp))
-
-#     sql = [
-#         "SELECT",
-#         ", ".join(select_cols),
-#         "FROM snapshot s",
-#         "JOIN player p ON p.id = s.player_id",
-#         "WHERE 1=1",
-#     ]
-#     params = []
-
-#     # 🚫 Hide Brett here (case-insensitive)
-#     #sql.append("AND p.name <> ? COLLATE NOCASE")
-#     #params.append("brett")
-
-#     # 👇 Rest of your filters
-#     if player:
-#         sql.append("AND p.name = ?")
-#         params.append(player)
-#     if since:
-#         sql.append("AND s.ts >= ?")
-#         params.append(since)
-#     if until:
-#         sql.append("AND s.ts < ?")
-#         params.append(until)
-
-#     sql.append(f"ORDER BY s.ts {order_sql}")
-#     sql.append("LIMIT ?")
-#     params.append(limit)
-
-#     with db() as conn:
-#         rows = conn.execute("\n".join(sql), params).fetchall()
-#         out = []
-#         for r in rows:
-#             d = dict(r)
-#             d.pop("ts", None)
-#             out.append(d)
-#         return jsonify(out)
-
 @app.get("/api/snapshots")
 def api_snapshots():
     player = request.args.get("player")
 
-    # 👇 safety cap on limit
     try:
         limit = int(request.args.get("limit", "300"))
     except ValueError:
@@ -338,10 +244,8 @@ def api_snapshots():
 
     order_sql = "DESC" if order != "asc" else "ASC"
 
-    # 👇 start with only the columns we actually need
     select_cols = list(BASE_SNAPSHOT_COLS)
 
-    # 👇 add deltas only for the few known numeric columns
     if with_deltas:
         cols = snapshot_numeric_columns()
         print("with_deltas=1 -> adding deltas for", cols)
