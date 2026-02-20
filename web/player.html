@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Player Profile - Redsec Stats</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121821; --muted:#8aa1b1; --text:#e8f0f6; --accent:#6ec1ff; --border:#223041;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Arial}
+    a{color:var(--accent)}
+    .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
+    .title{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .title h1{margin:0;font-size:24px}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:12px}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+    .controls select,.controls button{padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0f141c;color:var(--text)}
+    .cards{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px;margin-top:12px}
+    .card{background:#0f141c;border:1px solid var(--border);border-radius:10px;padding:10px}
+    .card .label{font-size:12px;color:var(--muted)}
+    .card .value{font-size:20px;font-weight:700;margin-top:2px}
+    .sub{margin-top:10px;color:var(--muted);font-size:12px}
+    table{width:100%;border-collapse:separate;border-spacing:0}
+    th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+    thead th{background:#111720}
+    .table-wrap{overflow:auto;border:1px solid var(--border);border-radius:10px;margin-top:12px}
+    @media (max-width:900px){ .cards{grid-template-columns:repeat(2,minmax(140px,1fr));} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1 id="playerTitle">Player Profile</h1>
+    <a href="/">Back to match view</a>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <div>
+        <label class="sub" for="playerSelect">Player</label><br />
+        <select id="playerSelect"></select>
+      </div>
+      <button id="refreshBtn">Refresh</button>
+    </div>
+
+    <div class="cards" id="statCards"></div>
+    <div class="sub" id="rangeText"></div>
+  </div>
+
+  <div class="panel">
+    <strong>Overall leaderboard</strong>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Matches</th>
+            <th>Kills</th>
+            <th>Deaths</th>
+            <th>Assists</th>
+            <th>Damage</th>
+            <th>Wins</th>
+            <th>KD</th>
+            <th>KDA</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboardBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const fmt = (v)=>Number(v ?? 0).toLocaleString();
+const qs = new URLSearchParams(location.search);
+let selectedPlayer = qs.get("player") || "";
+let allRows = [];
+
+function fmtMinutes(seconds){
+  const s = Number(seconds) || 0;
+  const minutes = s / 60;
+  if (minutes < 1) return `${s.toFixed(0)} s`;
+  if (minutes < 60) return `${minutes.toFixed(1)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h} h ${m} min`;
+}
+
+function setCards(row){
+  const cards = [
+    ["Overall Kills", fmt(row.overall_kills)],
+    ["Overall Deaths", fmt(row.overall_deaths)],
+    ["Overall Assists", fmt(row.overall_assists)],
+    ["Overall Damage", fmt(row.overall_damage)],
+    ["Overall Wins", fmt(row.overall_wins)],
+    ["Overall KD", row.overall_kd?.toFixed ? row.overall_kd.toFixed(2) : fmt(row.overall_kd)],
+    ["Overall KDA", row.overall_kda?.toFixed ? row.overall_kda.toFixed(2) : fmt(row.overall_kda)],
+    ["Win Rate", `${Number(row.win_rate || 0).toFixed(2)}%`],
+    ["Time Played", fmtMinutes(row.overall_time_played)],
+    ["Matches Tracked", fmt(row.matches_tracked)],
+  ];
+  document.getElementById("statCards").innerHTML = cards.map(([label, value]) => `
+    <div class="card">
+      <div class="label">${label}</div>
+      <div class="value">${value}</div>
+    </div>
+  `).join("");
+
+  document.getElementById("rangeText").textContent =
+    `Data range: ${row.first_seen || "-"} to ${row.last_seen || "-"} (${fmt(row.snapshots)} snapshots)`;
+}
+
+function setLeaderboard(rows){
+  const body = document.getElementById("leaderboardBody");
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td><a href="/player.html?player=${encodeURIComponent(r.player_name)}">${r.player_name}</a></td>
+      <td>${fmt(r.matches_tracked)}</td>
+      <td>${fmt(r.overall_kills)}</td>
+      <td>${fmt(r.overall_deaths)}</td>
+      <td>${fmt(r.overall_assists)}</td>
+      <td>${fmt(r.overall_damage)}</td>
+      <td>${fmt(r.overall_wins)}</td>
+      <td>${Number(r.overall_kd || 0).toFixed(2)}</td>
+      <td>${Number(r.overall_kda || 0).toFixed(2)}</td>
+    </tr>
+  `).join("");
+}
+
+function setPlayerSelect(rows){
+  const names = rows.map(r => r.player_name).filter(Boolean);
+  const select = document.getElementById("playerSelect");
+  select.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join("");
+  if (!selectedPlayer || !names.includes(selectedPlayer)) selectedPlayer = names[0] || "";
+  select.value = selectedPlayer;
+}
+
+function renderCurrent(){
+  const row = allRows.find(r => r.player_name === selectedPlayer);
+  if (!row) return;
+  document.getElementById("playerTitle").textContent = `${selectedPlayer} - Overall Profile`;
+  setCards(row);
+  const url = new URL(location.href);
+  url.searchParams.set("player", selectedPlayer);
+  history.replaceState(null, "", url.toString());
+}
+
+async function load(){
+  const res = await fetch("/api/overall", { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to load overall stats");
+  const rows = await res.json();
+  allRows = rows
+    .filter(r => (r.player_name || "").toLowerCase() !== "peej")
+    .sort((a, b) => Number(b.overall_kills || 0) - Number(a.overall_kills || 0));
+
+  setPlayerSelect(allRows);
+  renderCurrent();
+  setLeaderboard(allRows);
+}
+
+document.getElementById("playerSelect").addEventListener("change", (e) => {
+  selectedPlayer = e.target.value;
+  renderCurrent();
+});
+
+document.getElementById("refreshBtn").addEventListener("click", load);
+load().catch((e) => {
+  document.getElementById("rangeText").textContent = e.message || "Could not load stats.";
+});
+</script>
+</body>
+</html>

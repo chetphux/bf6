@@ -308,6 +308,97 @@ def api_last_per_player():
         return jsonify([dict(r) for r in rows])
 
 
+@app.get("/api/overall")
+def api_overall():
+    """
+    Overall aggregate stats computed from positive per-snapshot deltas.
+    Optional query param:
+      - player: exact player name
+    """
+    player = request.args.get("player")
+
+    sql = """
+    WITH ordered AS (
+        SELECT
+            s.player_id,
+            p.name AS player_name,
+            s.ts,
+            COALESCE(s.kills_gm_granitebr, 0) AS kills,
+            COALESCE(s.deaths_gm_granitebr, 0) AS deaths,
+            COALESCE(s.assists_gm_granitebr, 0) AS assists,
+            COALESCE(s.dmg_gm_granitebr, 0) AS dmg,
+            COALESCE(s.wins_gm_granitebr, 0) AS wins,
+            COALESCE(s.tp_gm_granitebr, 0) AS tp,
+            COALESCE(s.scorein_gm_granitebr, 0) AS score,
+            COALESCE(s.revives_gm_granitebr, 0) AS revives,
+            COALESCE(s.spot_gm_granitebr, 0) AS spots,
+            LAG(COALESCE(s.kills_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_kills,
+            LAG(COALESCE(s.deaths_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_deaths,
+            LAG(COALESCE(s.assists_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_assists,
+            LAG(COALESCE(s.dmg_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_dmg,
+            LAG(COALESCE(s.wins_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_wins,
+            LAG(COALESCE(s.tp_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_tp,
+            LAG(COALESCE(s.scorein_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_score,
+            LAG(COALESCE(s.revives_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_revives,
+            LAG(COALESCE(s.spot_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_spots
+        FROM snapshot s
+        JOIN player p ON p.id = s.player_id
+        WHERE (? IS NULL OR p.name = ?)
+    ),
+    deltas AS (
+        SELECT
+            player_id,
+            player_name,
+            ts,
+            MAX(kills   - COALESCE(prev_kills,   kills),   0) AS dkills,
+            MAX(deaths  - COALESCE(prev_deaths,  deaths),  0) AS ddeaths,
+            MAX(assists - COALESCE(prev_assists, assists), 0) AS dassists,
+            MAX(dmg     - COALESCE(prev_dmg,     dmg),     0) AS ddmg,
+            MAX(wins    - COALESCE(prev_wins,    wins),    0) AS dwins,
+            MAX(tp      - COALESCE(prev_tp,      tp),      0) AS dtp,
+            MAX(score   - COALESCE(prev_score,   score),   0) AS dscore,
+            MAX(revives - COALESCE(prev_revives, revives), 0) AS drevives,
+            MAX(spots   - COALESCE(prev_spots,   spots),   0) AS dspots
+        FROM ordered
+    )
+    SELECT
+        player_id,
+        player_name,
+        COUNT(*) AS snapshots,
+        SUM(CASE WHEN (dkills + ddeaths + dassists + ddmg + dwins + dtp + dscore + drevives + dspots) > 0 THEN 1 ELSE 0 END) AS matches_tracked,
+        MIN(ts) AS first_seen,
+        MAX(ts) AS last_seen,
+        SUM(dkills) AS overall_kills,
+        SUM(ddeaths) AS overall_deaths,
+        SUM(dassists) AS overall_assists,
+        SUM(ddmg) AS overall_damage,
+        SUM(dwins) AS overall_wins,
+        SUM(dtp) AS overall_time_played,
+        SUM(dscore) AS overall_score,
+        SUM(drevives) AS overall_revives,
+        SUM(dspots) AS overall_spots
+    FROM deltas
+    GROUP BY player_id, player_name
+    ORDER BY player_name ASC
+    """
+
+    with db() as conn:
+        rows = conn.execute(sql, (player, player)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            deaths = max(1, int(d.get("overall_deaths") or 0))
+            kills = int(d.get("overall_kills") or 0)
+            assists = int(d.get("overall_assists") or 0)
+            wins = int(d.get("overall_wins") or 0)
+            matches = int(d.get("matches_tracked") or 0)
+            d["overall_kd"] = round(kills / deaths, 2)
+            d["overall_kda"] = round((kills + assists) / deaths, 2)
+            d["win_rate"] = round((wins / matches) * 100, 2) if matches > 0 else 0.0
+            out.append(d)
+        return jsonify(out)
+
+
 if __name__ == "__main__":
     WEB_DIR.mkdir(exist_ok=True)
     app.run(host="0.0.0.0", port=8080, debug=False)

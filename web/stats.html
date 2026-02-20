@@ -225,6 +225,7 @@
       <div style="display:flex;gap:8px;align-items:end">
         <button id="resetBtn" title="Reset filters">Reset</button>
         <button id="openChartBtn" title="Open KD chart">KD Chart</button>
+        <button id="openProfileBtn" title="Open overall player profile">Player profile</button>
         <button id="showFullImageBtn" title="Show all players">Show all players</button>
         <div style="margin-top:12px"></div>
       </div>
@@ -300,6 +301,12 @@
 const GRANITE_SUFFIX = "_gm_granitebr";
 const num = (v)=> (v==null || v==="") ? 0 : Number(v);
 const fmt = (v)=> v==null ? "" : Number(v).toLocaleString();
+const esc = (s)=>String(s ?? "").replace(/[&<>"']/g, (c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const playerProfileHref = (name)=> `/player.html?player=${encodeURIComponent(name)}`;
+const playerLink = (name)=>{
+  const n = (name ?? "").trim();
+  return n ? `<a href="${playerProfileHref(n)}">${esc(n)}</a>` : "";
+};
 
 /** Compute KD/KDA on a row (adds per-match metrics too) */
 function withComputed(row) {
@@ -446,7 +453,7 @@ function renderTable(){
         </tr>`
       : "";
     return `${groupLabel}<tr>
-      <td class="nowrap">${name}</td>
+      <td class="nowrap">${playerLink(name)}</td>
       <td class="nowrap"><span class="tag">${ts}</span></td>
       <td class="num hide-sm">${fmt(r.delta_kills_gm_granitebr)}</td>
       <td class="num hide-sm">${fmt(r.delta_deaths_gm_granitebr)}</td>
@@ -475,15 +482,6 @@ function renderTable(){
     prevPageBtn.disabled = currentPage <= 1;
     nextPageBtn.disabled = currentPage >= totalPages;
   }
-}
-
-function renderFilters(){
-  const names = new Set();
-  DATA.forEach(r=> names.add(r.player_name ?? r.name ?? ""));
-  const sorted = [...names].filter(Boolean).sort((a,b)=>a.localeCompare(b));
-  playerFilter.innerHTML = `<option value="__all__">All players</option>` +
-    sorted.map(n=>`<option>${n}</option>`).join("");
-  playersCount.textContent = `${sorted.length} players`;
 }
 
 function renderFilters(){
@@ -536,7 +534,7 @@ function renderSummary(){
     .slice(0, 6)
     .map(([name, x]) => {
       const kdAvg = (x.kdSum / x.rows).toFixed(2);
-      return `<span class="pill"><strong>${name}</strong> • ${x.rows} matches • KD ${kdAvg}</span>`;
+      return `<span class="pill"><strong>${playerLink(name)}</strong> • ${x.rows} matches • KD ${kdAvg}</span>`;
     });
 
   summary.innerHTML = items.join("") || `<span class="tag">No data loaded yet.</span>`;
@@ -591,6 +589,15 @@ document.getElementById("resetBtn").addEventListener("click", ()=>{
   playerFilter.value="__all__"; search.value="";
   currentPage = 1;
   renderTable();
+});
+
+document.getElementById("openProfileBtn").addEventListener("click", ()=>{
+  const selected = playerFilter.value;
+  if (selected && selected !== "__all__") {
+    window.location.href = playerProfileHref(selected);
+    return;
+  }
+  window.location.href = "/player.html";
 });
 
 function normalizeRows(rows){
