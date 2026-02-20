@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, redirect
+﻿from flask import Flask, jsonify, request, send_from_directory, redirect
 import sqlite3
 from contextlib import contextmanager
 from functools import lru_cache
@@ -21,8 +21,8 @@ def log_response_size(response):
     return response
 
 BLACKLISTED_IPS = {
-        #"24.18.155.220",
-        }
+    "108.90.110.51",    # Dallas, Texas | Big Phil
+}
 
 @app.post("/api/trigger_refresh")
 def api_trigger_refresh():
@@ -152,7 +152,7 @@ def log_ip():
     raw_ip = ip.split(",")[0].strip() if ip else None    
     if raw_ip in BLACKLISTED_IPS:
         print(f'{raw_ip} redirected!')
-        return redirect("https://thisvid.com/videos/dirty-bears2", code=301)
+        return redirect("https://www.youtube.com/watch?v=Eo-KmOd3i7s&list=RDEo-KmOd3i7s&start_radio=1", code=301)
 
 @contextmanager
 def db():
@@ -190,6 +190,9 @@ BASE_SNAPSHOT_COLS = [
     "s.dmg_gm_granitebr",
     "s.wins_gm_granitebr",
     "s.tp_gm_granitebr",
+    "s.scorein_gm_granitebr",
+    "s.revives_gm_granitebr",
+    "s.spot_gm_granitebr",
 ]
 
 @lru_cache(maxsize=1)
@@ -204,6 +207,9 @@ def snapshot_numeric_columns():
         "dmg_gm_granitebr",
         "wins_gm_granitebr",
         "tp_gm_granitebr",
+    	"scorein_gm_granitebr",
+        "revives_gm_granitebr",
+        "spot_gm_granitebr"
     ]
 
 def delta_sql(col: str, clamp: bool) -> str:
