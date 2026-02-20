@@ -11,6 +11,46 @@
     *{box-sizing:border-box}
     html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Arial}
     a{color:var(--accent)}
+    .back-link{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:8px 12px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:#0f141c;
+      color:var(--text);
+      text-decoration:none;
+      font-weight:600;
+      line-height:1;
+      transition:border-color .16s ease, background .16s ease;
+    }
+    .back-link:hover{
+      border-color:var(--accent);
+      background:#132237;
+      color:var(--text);
+      text-decoration:none;
+    }
+    .player-link{
+      display:inline-flex;
+      align-items:center;
+      padding:4px 10px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:linear-gradient(180deg,#101a28,#0d1622);
+      color:#d9efff;
+      text-decoration:none;
+      font-weight:600;
+      line-height:1.1;
+      transition:border-color .16s ease, background .16s ease;
+    }
+    .player-link:hover{
+      border-color:var(--accent);
+      background:#132237;
+      color:#d9efff;
+      text-decoration:none;
+    }
+    .player-link:visited{color:#d9efff}
     .wrap{max-width:1100px;margin:24px auto;padding:0 16px}
     .title{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
     .title h1{margin:0;font-size:24px}
@@ -33,7 +73,7 @@
 <div class="wrap">
   <div class="title">
     <h1 id="playerTitle">Player Profile</h1>
-    <a href="/">Back to match view</a>
+    <a class="back-link" href="/">← Back to match view</a>
   </div>
 
   <div class="panel">
@@ -42,7 +82,6 @@
         <label class="sub" for="playerSelect">Player</label><br />
         <select id="playerSelect"></select>
       </div>
-      <button id="refreshBtn">Refresh</button>
     </div>
 
     <div class="cards" id="statCards"></div>
@@ -62,6 +101,10 @@
             <th>Assists</th>
             <th>Damage</th>
             <th>Wins</th>
+            <th>Intel picked up</th>
+            <th>Vehicles destroyed</th>
+            <th>Revives</th>
+            <th>Spots</th>
             <th>KD</th>
             <th>KDA</th>
           </tr>
@@ -95,6 +138,10 @@ function setCards(row){
     ["Overall Assists", fmt(row.overall_assists)],
     ["Overall Damage", fmt(row.overall_damage)],
     ["Overall Wins", fmt(row.overall_wins)],
+    ["Intel picked up", fmt(row.overall_intel_picked_up)],
+    ["Vehicles destroyed", fmt(row.overall_vehicles_destroyed)],
+    ["Overall Revives", fmt(row.overall_revives)],
+    ["Overall Spots", fmt(row.overall_spots)],
     ["Overall KD", row.overall_kd?.toFixed ? row.overall_kd.toFixed(2) : fmt(row.overall_kd)],
     ["Overall KDA", row.overall_kda?.toFixed ? row.overall_kda.toFixed(2) : fmt(row.overall_kda)],
     ["Win Rate", `${Number(row.win_rate || 0).toFixed(2)}%`],
@@ -116,13 +163,17 @@ function setLeaderboard(rows){
   const body = document.getElementById("leaderboardBody");
   body.innerHTML = rows.map((r) => `
     <tr>
-      <td><a href="/player.html?player=${encodeURIComponent(r.player_name)}">${r.player_name}</a></td>
+      <td><a class="player-link" href="/player.html?player=${encodeURIComponent(r.player_name)}">${r.player_name}</a></td>
       <td>${fmt(r.matches_tracked)}</td>
       <td>${fmt(r.overall_kills)}</td>
       <td>${fmt(r.overall_deaths)}</td>
       <td>${fmt(r.overall_assists)}</td>
       <td>${fmt(r.overall_damage)}</td>
       <td>${fmt(r.overall_wins)}</td>
+      <td>${fmt(r.overall_intel_picked_up)}</td>
+      <td>${fmt(r.overall_vehicles_destroyed)}</td>
+      <td>${fmt(r.overall_revives)}</td>
+      <td>${fmt(r.overall_spots)}</td>
       <td>${Number(r.overall_kd || 0).toFixed(2)}</td>
       <td>${Number(r.overall_kda || 0).toFixed(2)}</td>
     </tr>
@@ -165,7 +216,6 @@ document.getElementById("playerSelect").addEventListener("change", (e) => {
   renderCurrent();
 });
 
-document.getElementById("refreshBtn").addEventListener("click", load);
 load().catch((e) => {
   document.getElementById("rangeText").textContent = e.message || "Could not load stats.";
 });

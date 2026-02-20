@@ -10,6 +10,8 @@ from datetime import datetime, timezone, timedelta
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "stats.sqlite3"
 WEB_DIR = BASE_DIR / "web"  # Put stats.html and any assets here
+DEFAULT_SNAPSHOT_LIMIT = 100
+MAX_SNAPSHOT_LIMIT = 2000
 
 app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
 
@@ -234,13 +236,21 @@ def index():
 @app.get("/api/snapshots")
 def api_snapshots():
     player = request.args.get("player")
+    paged = request.args.get("paged", "0").lower() in ("1", "true", "yes")
+    cursor_ts = request.args.get("cursor_ts")
+    cursor_id = None
+    cursor_id_raw = request.args.get("cursor_id")
+    if cursor_id_raw is not None:
+        try:
+            cursor_id = int(cursor_id_raw)
+        except ValueError:
+            cursor_id = None
 
     try:
-        limit = int(request.args.get("limit", "300"))
+        limit = int(request.args.get("limit", str(DEFAULT_SNAPSHOT_LIMIT)))
     except ValueError:
-        limit = 100
-    MAX_LIMIT = 100
-    limit = max(1, min(limit, MAX_LIMIT))
+        limit = DEFAULT_SNAPSHOT_LIMIT
+    limit = max(1, min(limit, MAX_SNAPSHOT_LIMIT))
 
     since = request.args.get("from")
     until = request.args.get("to")
@@ -276,20 +286,47 @@ def api_snapshots():
     if until:
         sql.append("AND s.ts < ?")
         params.append(until)
+    if cursor_ts:
+        if cursor_id is not None:
+            if order_sql == "DESC":
+                sql.append("AND (s.ts < ? OR (s.ts = ? AND s.id < ?))")
+            else:
+                sql.append("AND (s.ts > ? OR (s.ts = ? AND s.id > ?))")
+            params.extend([cursor_ts, cursor_ts, cursor_id])
+        else:
+            sql.append("AND s.ts < ?" if order_sql == "DESC" else "AND s.ts > ?")
+            params.append(cursor_ts)
 
-    sql.append(f"ORDER BY s.ts {order_sql}")
+    sql.append(f"ORDER BY s.ts {order_sql}, s.id {order_sql}")
     sql.append("LIMIT ?")
-    params.append(limit)
+    query_limit = limit + 1 if paged else limit
+    params.append(query_limit)
 
     with db() as conn:
         rows = conn.execute("\n".join(sql), params).fetchall()
+        page_rows = rows[:limit] if paged else rows
         out = []
-        for r in rows:
+        for r in page_rows:
             d = dict(r)
             # We already expose "timestamp" via SELECT; drop raw ts if present
             d.pop("ts", None)
             out.append(d)
-        return jsonify(out)
+        if not paged:
+            return jsonify(out)
+
+        has_more = len(rows) > limit
+        next_cursor = None
+        if has_more and page_rows:
+            tail = page_rows[-1]
+            next_cursor = {
+                "ts": tail["timestamp"],
+                "id": tail["id"],
+            }
+        return jsonify({
+            "items": out,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        })
 
 
 @app.get("/api/last")
@@ -311,15 +348,16 @@ def api_last_per_player():
 @app.get("/api/overall")
 def api_overall():
     """
-    Overall aggregate stats computed from positive per-snapshot deltas.
+    Overall profile totals from each player's latest snapshot.
     Optional query param:
       - player: exact player name
     """
     player = request.args.get("player")
 
     sql = """
-    WITH ordered AS (
+    WITH base AS (
         SELECT
+            s.id,
             s.player_id,
             p.name AS player_name,
             s.ts,
@@ -328,56 +366,39 @@ def api_overall():
             COALESCE(s.assists_gm_granitebr, 0) AS assists,
             COALESCE(s.dmg_gm_granitebr, 0) AS dmg,
             COALESCE(s.wins_gm_granitebr, 0) AS wins,
+            COALESCE(s.intel_pickup_gm_granitebr, 0) AS intel_pickups,
+            COALESCE(s.vehd_gm_granitebr, 0) AS vehicles_destroyed,
             COALESCE(s.tp_gm_granitebr, 0) AS tp,
             COALESCE(s.scorein_gm_granitebr, 0) AS score,
             COALESCE(s.revives_gm_granitebr, 0) AS revives,
             COALESCE(s.spot_gm_granitebr, 0) AS spots,
-            LAG(COALESCE(s.kills_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_kills,
-            LAG(COALESCE(s.deaths_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_deaths,
-            LAG(COALESCE(s.assists_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_assists,
-            LAG(COALESCE(s.dmg_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_dmg,
-            LAG(COALESCE(s.wins_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_wins,
-            LAG(COALESCE(s.tp_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_tp,
-            LAG(COALESCE(s.scorein_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_score,
-            LAG(COALESCE(s.revives_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_revives,
-            LAG(COALESCE(s.spot_gm_granitebr, 0)) OVER (PARTITION BY s.player_id ORDER BY s.ts) AS prev_spots
+            ROW_NUMBER() OVER (
+                PARTITION BY s.player_id
+                ORDER BY s.ts DESC, s.id DESC
+            ) AS rn_latest
         FROM snapshot s
         JOIN player p ON p.id = s.player_id
         WHERE (? IS NULL OR p.name = ?)
-    ),
-    deltas AS (
-        SELECT
-            player_id,
-            player_name,
-            ts,
-            MAX(kills   - COALESCE(prev_kills,   kills),   0) AS dkills,
-            MAX(deaths  - COALESCE(prev_deaths,  deaths),  0) AS ddeaths,
-            MAX(assists - COALESCE(prev_assists, assists), 0) AS dassists,
-            MAX(dmg     - COALESCE(prev_dmg,     dmg),     0) AS ddmg,
-            MAX(wins    - COALESCE(prev_wins,    wins),    0) AS dwins,
-            MAX(tp      - COALESCE(prev_tp,      tp),      0) AS dtp,
-            MAX(score   - COALESCE(prev_score,   score),   0) AS dscore,
-            MAX(revives - COALESCE(prev_revives, revives), 0) AS drevives,
-            MAX(spots   - COALESCE(prev_spots,   spots),   0) AS dspots
-        FROM ordered
     )
     SELECT
         player_id,
         player_name,
         COUNT(*) AS snapshots,
-        SUM(CASE WHEN (dkills + ddeaths + dassists + ddmg + dwins + dtp + dscore + drevives + dspots) > 0 THEN 1 ELSE 0 END) AS matches_tracked,
+        COUNT(*) AS matches_tracked,
         MIN(ts) AS first_seen,
         MAX(ts) AS last_seen,
-        SUM(dkills) AS overall_kills,
-        SUM(ddeaths) AS overall_deaths,
-        SUM(dassists) AS overall_assists,
-        SUM(ddmg) AS overall_damage,
-        SUM(dwins) AS overall_wins,
-        SUM(dtp) AS overall_time_played,
-        SUM(dscore) AS overall_score,
-        SUM(drevives) AS overall_revives,
-        SUM(dspots) AS overall_spots
-    FROM deltas
+        MAX(CASE WHEN rn_latest = 1 THEN kills END) AS overall_kills,
+        MAX(CASE WHEN rn_latest = 1 THEN deaths END) AS overall_deaths,
+        MAX(CASE WHEN rn_latest = 1 THEN assists END) AS overall_assists,
+        MAX(CASE WHEN rn_latest = 1 THEN dmg END) AS overall_damage,
+        MAX(CASE WHEN rn_latest = 1 THEN wins END) AS overall_wins,
+        MAX(CASE WHEN rn_latest = 1 THEN intel_pickups END) AS overall_intel_picked_up,
+        MAX(CASE WHEN rn_latest = 1 THEN vehicles_destroyed END) AS overall_vehicles_destroyed,
+        MAX(CASE WHEN rn_latest = 1 THEN tp END) AS overall_time_played,
+        MAX(CASE WHEN rn_latest = 1 THEN score END) AS overall_score,
+        MAX(CASE WHEN rn_latest = 1 THEN revives END) AS overall_revives,
+        MAX(CASE WHEN rn_latest = 1 THEN spots END) AS overall_spots
+    FROM base
     GROUP BY player_id, player_name
     ORDER BY player_name ASC
     """
