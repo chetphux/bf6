@@ -1,10 +1,17 @@
-﻿from flask import Flask, jsonify, request, send_from_directory, redirect
+from flask import Flask, jsonify, request, send_from_directory, redirect
 import sqlite3
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
+from io import BytesIO
 import re
+import base64
+import json
+import os
+import threading
+import uuid
 from datetime import datetime, timezone, timedelta
+from werkzeug.utils import secure_filename
 
 # Paths
 BASE_DIR = Path(__file__).resolve().parent
@@ -12,6 +19,14 @@ DB_PATH = BASE_DIR / "stats.sqlite3"
 WEB_DIR = BASE_DIR / "web"  # Put stats.html and any assets here
 DEFAULT_SNAPSHOT_LIMIT = 100
 MAX_SNAPSHOT_LIMIT = 2000
+PIXARIFY_DIR = BASE_DIR / "pixarify_files"
+PIXARIFY_TTL_SECONDS = 15 * 60
+PIXARIFY_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+PIXARIFY_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+PIXARIFY_DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
+PIXARIFY_DEFAULT_PROMPT = (
+    "Severe down's syndrome, preserve facial structure. Eyes and smile should strongly resemble down's syndrome"
+)
 
 app = Flask(__name__, static_folder=str(WEB_DIR), static_url_path="")
 
@@ -96,7 +111,6 @@ def seconds_until_next_tick(now=None):
 
 @app.get("/api/timer")
 def api_timer():
-    import json
     from datetime import datetime, timezone
 
     # read raw values directly
@@ -167,6 +181,96 @@ def db():
 
 
 
+def _ensure_pixarify_dir():
+    PIXARIFY_DIR.mkdir(exist_ok=True)
+
+
+def _cleanup_expired_pixarify_files():
+    _ensure_pixarify_dir()
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=PIXARIFY_TTL_SECONDS)
+    for file_path in PIXARIFY_DIR.glob("*"):
+        if not file_path.is_file():
+            continue
+        try:
+            modified = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+            if modified < cutoff:
+                file_path.unlink(missing_ok=True)
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            app.logger.warning("Pixarify cleanup failed for %s: %s", file_path, exc)
+
+
+def _schedule_pixarify_cleanup(paths):
+    files = [Path(p) for p in paths]
+
+    def _delete_paths():
+        for file_path in files:
+            try:
+                file_path.unlink(missing_ok=True)
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                app.logger.warning("Pixarify delete failed for %s: %s", file_path, exc)
+
+    timer = threading.Timer(PIXARIFY_TTL_SECONDS, _delete_paths)
+    timer.daemon = True
+    timer.start()
+
+
+def _extract_inline_image_bytes(response):
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            inline = getattr(part, "inline_data", None)
+            if not inline:
+                continue
+            payload = getattr(inline, "data", None)
+            if isinstance(payload, (bytes, bytearray)):
+                return bytes(payload)
+            if isinstance(payload, str):
+                try:
+                    return base64.b64decode(payload)
+                except Exception:
+                    continue
+    return None
+
+
+def _generate_pixarified_image(input_path: Path, output_path: Path):
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("Missing GOOGLE_API_KEY on the server.")
+
+    try:
+        from google import genai
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Missing dependencies: install google-genai and pillow.") from exc
+
+    model_name = os.environ.get("PIXARIFY_MODEL", PIXARIFY_DEFAULT_MODEL)
+    prompt = os.environ.get("PIXARIFY_PROMPT", PIXARIFY_DEFAULT_PROMPT)
+
+    client = genai.Client(api_key=api_key)
+    with Image.open(input_path) as source_image:
+        source_image.load()
+        response = client.models.generate_content(
+            model=model_name,
+            contents=[
+                prompt,
+                source_image,
+            ],
+        )
+
+    image_bytes = _extract_inline_image_bytes(response)
+    if not image_bytes:
+        raise RuntimeError("Down model did not return an image.")
+
+    with Image.open(BytesIO(image_bytes)) as generated_image:
+        generated_image.save(output_path, format="PNG")
+
+
 @app.get("/api/players")
 def api_players():
     """List of players."""
@@ -232,6 +336,76 @@ def delta_sql(col: str, clamp: bool) -> str:
 @app.get("/")
 def index():
     return send_from_directory(WEB_DIR, "stats.html")
+
+
+@app.get("/rudown")
+def pixarify_page():
+    return send_from_directory(WEB_DIR, "pixarify.html")
+
+
+@app.post("/api/rudown")
+def api_pixarify():
+    _cleanup_expired_pixarify_files()
+
+    uploaded = request.files.get("image")
+    if uploaded is None or not uploaded.filename:
+        return jsonify({"ok": False, "error": "Choose an image before uploading."}), 400
+
+    safe_name = secure_filename(uploaded.filename)
+    ext = Path(safe_name).suffix.lower()
+    if ext not in PIXARIFY_ALLOWED_EXTENSIONS:
+        return jsonify({"ok": False, "error": "Allowed formats: JPG, PNG, WEBP."}), 400
+
+    job_id = uuid.uuid4().hex
+    input_path = PIXARIFY_DIR / f"{job_id}_input{ext}"
+    output_name = f"{job_id}_output.png"
+    output_path = PIXARIFY_DIR / output_name
+
+    try:
+        uploaded.save(input_path)
+        if input_path.stat().st_size > PIXARIFY_MAX_UPLOAD_BYTES:
+            input_path.unlink(missing_ok=True)
+            return jsonify({"ok": False, "error": "Image too large (max 10 MB)."}), 413
+
+        _generate_pixarified_image(input_path, output_path)
+    except RuntimeError as exc:
+        input_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except Exception:
+        app.logger.exception("Pixarify generation failed")
+        input_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
+        return jsonify({"ok": False, "error": "Failed to generate image."}), 500
+
+    _schedule_pixarify_cleanup([input_path, output_path])
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=PIXARIFY_TTL_SECONDS)
+
+    return jsonify(
+        {
+            "ok": True,
+            "image_url": f"/api/rudown/image/{output_name}",
+            "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+        }
+    )
+
+
+@app.get("/api/rudown/image/<path:filename>")
+def api_pixarify_image(filename):
+    _cleanup_expired_pixarify_files()
+
+    safe_name = secure_filename(filename)
+    if safe_name != filename or not safe_name.endswith("_output.png"):
+        return jsonify({"ok": False, "error": "Image not found."}), 404
+
+    file_path = PIXARIFY_DIR / safe_name
+    if not file_path.exists():
+        return jsonify({"ok": False, "error": "Image expired or missing."}), 404
+
+    response = send_from_directory(str(PIXARIFY_DIR), safe_name, mimetype="image/png")
+    response.headers["Cache-Control"] = f"public, max-age={PIXARIFY_TTL_SECONDS}"
+    return response
+
 
 @app.get("/api/snapshots")
 def api_snapshots():
@@ -422,4 +596,5 @@ def api_overall():
 
 if __name__ == "__main__":
     WEB_DIR.mkdir(exist_ok=True)
+    _cleanup_expired_pixarify_files()
     app.run(host="0.0.0.0", port=8080, debug=False)
