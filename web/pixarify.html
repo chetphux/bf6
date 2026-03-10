@@ -48,7 +48,9 @@ body{
       mix-blend-mode:screen;
     }
     .wrap{
-      min-height:100vh;
+      min-height:85vh;
+      min-height:85svh;
+      min-height:85dvh;
       max-width:1200px;
       margin:0 auto;
       padding:22px 18px 30px;
@@ -58,7 +60,7 @@ body{
     }
     .topline{
       display:flex;
-      justify-content:space-between;
+      justify-content:center;
       align-items:flex-start;
       gap:12px;
       flex-wrap:wrap;
@@ -70,6 +72,7 @@ body{
       padding:14px 18px;
       backdrop-filter:blur(8px);
       box-shadow:0 8px 24px #02060f52;
+      text-align:center;
     }
     .brand h1{
       margin:0;
@@ -80,30 +83,18 @@ body{
       text-shadow:0 4px 18px #00000088;
     }
     .brand p{
-      margin:10px 0 0;
+      margin:10px auto 0;
       color:var(--muted);
       font-size:14px;
       max-width:640px;
     }
-    .back{
-      text-decoration:none;
-      color:#f7fbff;
-      border:1px solid #5c6f946b;
-      border-radius:999px;
-      padding:10px 14px;
-      background:#091426c7;
-      backdrop-filter:blur(8px);
-      box-shadow:0 6px 20px #00000050;
-      white-space:nowrap;
-    }
-    .back:hover{border-color:#93b7e9}
     .hero{
       margin-top:auto;
       background:linear-gradient(132deg, var(--panel-a), var(--panel-b));
       border:1px solid #4255769a;
       border-radius:24px;
       padding:18px;
-      backdrop-filter:blur(10px);
+      backdrop-filter:blur(1px);
       box-shadow:0 14px 42px #00000070;
     }
     .drop{
@@ -230,19 +221,57 @@ body{
     }
     .open-link:hover{border-color:#e4b26c}
     @media (max-width:980px){
-      body{background-position:center 18%}
+      body{background-position:top left}
+      .hero{margin-top:0}
       .grid{grid-template-columns:1fr}
       .card{min-height:280px}
       .brand h1{font-size:clamp(32px,13vw,52px)}
     }
     @media (max-width:700px){
-      .wrap{padding:14px 12px 18px}
-      .brand{padding:12px}
-      .hero{padding:12px;border-radius:16px}
-      .drop{min-height:100px;padding:14px}
-      .preview,.empty{min-height:220px}
+      .wrap{
+        width:min(calc(100% - 32px), 460px);
+          min-height:100vh;
+        min-height:100svh;
+        min-height:100dvh;
+        padding:10px 0 14px;
+        padding:calc(10px + env(safe-area-inset-top)) 0 calc(14px + env(safe-area-inset-bottom));
+        gap: clamp(12px, 7vh, 100px);
+      }
+      body{
+        background-size:auto;
+        background-position:top left;
+      }
+      body::before{
+        background:
+          radial-gradient(circle at 50% 34%, #08111d0f 0%, #08111d33 45%, #050b148c 100%),
+          linear-gradient(180deg, #0710221f 0%, #07102263 64%, #050a138f 100%);
+      }
+      .brand{
+        padding:10px 12px;
+        background:#0b15265f;
+      }
+      .brand h1{font-size:clamp(30px,11vw,44px)}
+      .brand p{font-size:13px}
+      .hero{
+        padding:10px;
+        border-radius:16px;
+        background:linear-gradient(132deg, #09122480, #101a2d8c);
+      }
+      .drop{
+        min-height:88px;
+        padding:12px;
+        background:linear-gradient(180deg, #0d1a3154, #0c172865);
+      }
+      .card{
+        padding:10px;
+        background:#0b142434;
+      }
+      .preview,.empty{min-height:180px}
       .actions{gap:8px}
-      .meta{width:100%}
+      .meta{
+        width:100%;
+        background:#0e1a2e66;
+      }
     }
   </style>
 </head>
@@ -253,7 +282,6 @@ body{
         <h1>R U DOWN?</h1>
         <p>Drop in a photo, get DOWN with the render, and keep it live on the server for 15 minutes.</p>
       </div>
-      <a class="back" href="/">Back to stats</a>
     </div>
 
     <section class="hero">
